@@ -1,0 +1,333 @@
+<!-- pages/index/index.wxml --> 
+<wxs module="tools">
+  // 1. 计算净利率
+  var getRate = function(profit, revenue) {
+    var p = parseFloat(profit);
+    var r = parseFloat(revenue);
+    if (!r || r == 0) return 0;
+    return ((p / r) * 100).toFixed(1);
+  }
+
+  // 2. 输入框用的提示: (20.5万)
+  var simpleWan = function(val) {
+    if (!val) return '';
+    var num = parseFloat(val);
+    if (isNaN(num) || num < 10000) return ''; 
+    return '(' + (num / 10000).toFixed(2) + '万)';
+  }
+
+  // 3. 建议文案用的提示: 20.5万 (不带括号)
+  var toWanStr = function(val) {
+    if (!val) return '0';
+    var num = parseFloat(val);
+    return (num / 10000).toFixed(2) + '万';
+  }
+
+  // 4. 计算每万元成本省税额 (避免在WXML用toFixed报错)
+  var calcSave = function(rate) {
+    return (10000 * rate).toFixed(0);
+  }
+
+  module.exports = { 
+    getRate: getRate,
+    simpleWan: simpleWan,
+    toWanStr: toWanStr,
+    calcSave: calcSave
+  }
+</wxs>
+
+<view class="page-container">
+  
+  <view class="main-title">
+    <view>
+      <text>个体户年度汇算</text>
+      <view class="subtitle-badge">适用于个体户经营所得年度汇算，不适用于工资薪金个人所得税</view>
+    </view>
+  </view>
+
+  <!-- === 1. 经营收支 (回归清爽 + 简单万字提示) === -->
+  <view class="card">
+    <view class="card-title">经营收支</view>
+    
+    <!-- 收入 -->
+    <view class="form-item">
+      <view class="label-group">
+        <text class="label">年度总收入 (不含税)</text>
+      </view>
+      <view class="input-row-right">
+        <input class="input-lg" type="digit" placeholder="0" 
+               value="{{form.revenue}}" bindinput="onInput" data-field="revenue"/>
+        <view class="unit-group">
+          <text class="unit">元</text>
+          <!-- 核心修改：简单的万位提示，仅在后面显示 -->
+          <text class="wan-tag" wx:if="{{tools.simpleWan(form.revenue)}}">{{tools.simpleWan(form.revenue)}}</text>
+        </view>
+      </view>
+    </view>
+    
+    <view class="divider"></view>
+    
+    <!-- 成本 -->
+    <view class="form-item">
+      <view class="label-group">
+        <text class="label">成本费用总额</text>
+        <text class="sub-label">房租/人工/水电/进货等</text>
+      </view>
+      <view class="input-row-right">
+        <input class="input-lg" type="digit" placeholder="0" 
+               value="{{form.cost}}" bindinput="onInput" data-field="cost"/>
+        <view class="unit-group">
+          <text class="unit">元</text>
+          <text class="wan-tag" wx:if="{{tools.simpleWan(form.cost)}}">{{tools.simpleWan(form.cost)}}</text>
+        </view>
+      </view>
+    </view>
+    
+    <view class="divider"></view>
+
+    <!-- 增值税 (横向) -->
+    <view class="form-item-col">
+      <text class="label" style="margin-bottom:16rpx; display:block;">适用增值税率</text>
+      <text class="sub-label">以月平均营业额计算</text>
+      <radio-group bindchange="onVatChange" class="vat-row-compact">
+        <label class="vat-box {{form.vatRate == 0 ? 'active' : ''}}">
+          <radio value="0" checked="{{form.vatRate == 0}}" style="display:none;"/>
+          <text class="vb-title">免税 0%</text>
+          <text class="vb-desc">月入低于10万</text>
+        </label>
+        <label class="vat-box {{form.vatRate == 1 ? 'active' : ''}}">
+          <radio value="1" checked="{{form.vatRate == 1}}" style="display:none;"/>
+          <text class="vb-title">优惠 1%</text>
+          <text class="vb-desc">月入10万及以上</text>
+        </label>
+        <label class="vat-box {{form.vatRate == 3 ? 'active' : ''}}">
+          <radio value="3" checked="{{form.vatRate == 3}}" style="display:none;"/>
+          <text class="vb-title">标准 3%</text>
+          <text class="vb-desc">一般纳税人</text>
+        </label>
+      </radio-group>
+    </view>
+
+    <view class="divider"></view>
+
+    <view class="form-item">
+      <view class="label-group">
+        <!-- 修改标题：更通用的说法 -->
+        <text class="label">社保/公积金 (年缴纳额)</text>
+        <!-- 新增提示：明确告诉用户，灵活就业也能填 -->
+        <text class="sub-label">含灵活就业养老/医疗、个人公积金</text>
+      </view>
+      <view class="input-row-right">
+        <input class="input-lg" type="digit" placeholder="0" 
+               value="{{form.socialSecurity}}" bindinput="onInput" data-field="socialSecurity"/>
+        <view class="unit-group">
+          <text class="unit">元</text>
+          <text class="wan-tag" wx:if="{{tools.simpleWan(form.socialSecurity)}}">{{tools.simpleWan(form.socialSecurity)}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- === 2. 专项附加扣除 (提示回归) === -->
+  <view class="card">
+    <view class="card-header-flex">
+      <view class="card-title">税前扣除项</view>
+      <text class="static-info">基础减除 ¥60,000</text>
+    </view>
+
+    <view class="toggle-btn {{showMoreDeductions ? 'active' : ''}}" bindtap="toggleMore">
+      <text>{{showMoreDeductions ? '收起扣除项' : '展开 / 填报专项附加扣除'}}</text>
+      <text class="arrow">{{showMoreDeductions ? '▲' : '▼'}}</text>
+    </view>
+
+    <view class="detail-container" wx:if="{{showMoreDeductions}}">
+      <!-- 1. 住房 -->
+      <view class="group-box">
+        <view class="group-title">
+          1. 住房支出 <text class="tag-orange">二选一</text>
+        </view>
+        <view class="tips-box">
+          * 工作地有房填贷款(1000/月)，无房填租金(800-1500/月)。
+        </view>
+        <picker bindchange="onHousingChange" value="{{housingIndex}}" range="{{housingOptions}}" range-key="name">
+          <view class="picker-row">
+            <text class="picker-label">当前选择</text>
+            <view class="picker-val">{{housingOptions[housingIndex].name}} ></view>
+          </view>
+        </picker>
+      </view>
+
+      <!-- 2. 子女 -->
+      <view class="group-box">
+        <view class="group-title">2. 子女教育 & 婴幼儿</view>
+        <view class="tips-box">
+          * 标准：2000元/孩/月。可选择由一人全额扣(100%)，或夫妻平摊(各50%)。
+        </view>
+        <view class="input-row">
+          <text class="i-label">我扣全额 (100%)</text>
+          <view class="i-right">
+            <input class="i-input" type="number" placeholder="0" value="{{form.childFullCount}}" bindinput="onInput" data-field="childFullCount"/>
+            <text class="suffix">人</text>
+          </view>
+        </view>
+        <view class="line"></view>
+        <view class="input-row">
+          <text class="i-label">夫妻平摊 (50%)</text>
+          <view class="i-right">
+            <input class="i-input" type="number" placeholder="0" value="{{form.childHalfCount}}" bindinput="onInput" data-field="childHalfCount"/>
+            <text class="suffix">人</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 3. 老人 -->
+      <view class="group-box">
+        <view class="group-title">3. 赡养老人 (满60岁)</view>
+        <view class="tips-box">
+          * 独生子女固定3000元/月；非独生需与兄弟姐妹分摊，每人每月上限1500元。
+        </view>
+        <view class="input-row">
+          <text class="i-label">我是独生子女</text>
+          <switch color="#0052d9" checked="{{form.isOnlyChild}}" bindchange="onSwitchChange" data-field="isOnlyChild" style="transform: scale(0.8);"/>
+        </view>
+        <block wx:if="{{!form.isOnlyChild}}">
+          <view class="line"></view>
+          <view class="input-row">
+            <text class="i-label">非独生分摊 (≤1500/月)</text>
+            <view class="i-right">
+              <input class="i-input" type="number" placeholder="0" value="{{form.elderlyShareAmt}}" bindinput="onInput" data-field="elderlyShareAmt"/>
+              <text class="suffix">元</text>
+            </view>
+          </view>
+        </block>
+      </view>
+
+      <!-- 4. 继续教育 -->
+      <view class="group-box">
+        <view class="group-title">4. 继续教育</view>
+        <view class="tips-box">
+          * 职业资格证书：取得当年扣3600元；学历教育：每月扣400元。
+        </view>
+        <view class="input-row">
+          <view class="label-col">
+            <text class="i-label">本年是否取得职业资格证书</text>
+          </view>
+          <switch color="#0052d9" checked="{{form.hasCert}}" bindchange="onSwitchChange" data-field="hasCert" style="transform: scale(0.8);"/>
+        </view>
+        <view class="line"></view>
+        <view class="input-row">
+          <view class="label-col">
+            <text class="i-label">本年度学历教育在读月数</text>
+          </view>
+          <view class="i-right">
+            <input class="i-input" type="number" placeholder="0" value="{{form.degreeMonths}}" bindinput="onInput" data-field="degreeMonths"/>
+            <text class="suffix">月</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 5. 大病医疗 -->
+      <view class="group-box">
+        <view class="group-title">5. 大病医疗</view>
+        <view class="tips-box">
+          * 医保目录内个人自付部分，扣除1.5万起付线后，限额8万元。
+        </view>
+        <view class="input-row">
+          <view class="label-col">
+            <text class="i-label">个人自付总金额</text>
+          </view>
+          <view class="i-right">
+            <input class="i-input" type="digit" placeholder="0" value="{{form.medicalSelfPay}}" bindinput="onInput" data-field="medicalSelfPay"/>
+            <text class="suffix">元</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- === 3. 结果卡片 (上下结构·防爆版) === -->
+  <view class="result-area" wx:if="{{result}}">
+      
+      <view class="res-card-simple">
+        <!-- 上半部分：净利润 (视觉核心) -->
+        <view class="stack-item hero-section">
+          <text class="sr-lbl">预计税后净利润</text>
+          
+          <view class="sr-val-box">
+            <text class="unit">¥</text>
+            <text class="num green hero-num">{{result.profit}}</text>
+          </view>
+          
+          <view class="tag-row">
+            <text class="sr-tag">净利率 {{tools.getRate(result.profit, form.revenue)}}%</text>
+          </view>
+        </view>
+
+        <!-- 水平分割线 -->
+        <view class="h-line"></view>
+        
+        <!-- 下半部分：税费总额 -->
+        <view class="stack-item sub-section">
+          <view class="sub-row-title">
+            <text class="sr-lbl">需缴税费总额</text>
+            <text class="sr-sub">应纳税所得额: {{result.taxableIncome}}</text>
+          </view>
+          
+          <view class="sr-val-box align-left">
+            <text class="unit small">¥</text>
+            <text class="num red">{{result.totalTax}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 税务明细列表 (保持不变) -->
+      <view class="res-card-light list-card">
+        <view class="list-title">税费构成 (点击查看计算过程)</view>
+        
+        <view class="list-row hover-row" bindtap="showDetail" data-type="vat">
+          <view class="lr-left">
+            <view class="name-box">
+              <text class="lr-name">增值税 ({{form.vatRate}}%)</text>
+              <text class="help-icon">?</text>
+            </view>
+          </view>
+          <text class="lr-val">¥ {{result.vat}}</text>
+        </view>
+
+        <view class="list-row hover-row" bindtap="showDetail" data-type="surcharge">
+          <view class="lr-left">
+            <view class="name-box">
+              <text class="lr-name">附加税费</text>
+              <text class="help-icon">?</text>
+            </view>
+            <text class="lr-desc">城建/教育/地教</text>
+          </view>
+          <text class="lr-val">¥ {{result.surcharge}}</text>
+        </view>
+
+        <view class="divider-dashed"></view>
+
+        <view class="list-row hover-row" bindtap="showDetail" data-type="pit">
+          <view class="lr-left">
+            <view class="name-box">
+              <text class="lr-name">个人所得税</text>
+              <text class="help-icon">?</text>
+            </view>
+            <view class="tags-group">
+              <text class="tag-gray">适用第{{result.bracket.level}}档税率 {{result.bracket.rate*100}}%</text>
+            </view>
+          </view>
+          <text class="lr-val big">¥ {{result.pit}}</text>
+        </view>
+      </view> 
+
+
+  </view>
+  <view class="footer-tips-light">
+      * 结果仅供参考，实际申报请以税务局系统为准
+    </view>
+  <view class="footer-bar">
+    <button class="btn reset" bindtap="handleReset">重置</button>
+    <button class="btn calc" bindtap="handleCalculate">立即计算</button>
+  </view>
+</view>
